@@ -1,0 +1,163 @@
+---
+title: "Parallelization of Embarrassingly Parallel Tasks in R & Python"
+author: "Your Name"
+date: "`r Sys.Date()`"
+format: revealjs
+---
+
+## Introduction
+
+### What is Parallelization?
+- Dividing tasks across multiple CPU cores.
+- Benefits: Speed, efficiency, scalability.
+
+### What are Embarrassingly Parallel Tasks?
+- Tasks that can run independently without dependencies.
+- Examples:
+  - Running SQL queries for multiple IDs.
+  - Monte Carlo simulations.
+  - Batch image processing.
+
+---
+
+## The Framework for Parallel Execution
+
+1. Define the function to execute (e.g., querying SQL Server).
+2. Partition the workload (e.g., split list of IDs).
+3. Assign work to parallel workers.
+4. Aggregate results.
+
+---
+
+## Parallelization in Python
+
+### Using `multiprocessing`
+```python
+from multiprocessing import Pool
+
+def query_database(id):
+    return f"Processed ID: {id}"
+
+if __name__ == "__main__":
+    ids = [1, 2, 3, 4, 5]
+    with Pool(processes=4) as pool:
+        results = pool.map(query_database, ids)
+    print(results)
+```
+
+### Using `joblib`
+```python
+from joblib import Parallel, delayed
+
+def query_database(id):
+    return f"Processed ID: {id}"
+
+ids = [1, 2, 3, 4, 5]
+results = Parallel(n_jobs=-1)(delayed(query_database)(id) for id in ids)
+print(results)
+```
+
+---
+
+## Parallelization in R
+
+### Using `future` and `furrr`
+```r
+library(furrr)
+plan(multisession)
+
+query_database <- function(id) {
+  paste("Processed ID:", id)
+}
+
+ids <- 1:5
+results <- future_map(ids, query_database)
+print(results)
+```
+
+### Using `parallel`
+```r
+library(parallel)
+
+query_database <- function(id) {
+  paste("Processed ID:", id)
+}
+
+ids <- 1:5
+results <- mclapply(ids, query_database, mc.cores = 4)
+print(results)
+```
+
+---
+
+## SQL Query Execution in Parallel
+
+### Python Implementation
+```python
+import pyodbc
+from multiprocessing import Pool
+
+def query_sql_server(id):
+    conn = pyodbc.connect("your_connection_string")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM table WHERE id = ?", id)
+    result = cursor.fetchall()
+    conn.close()
+    return result
+
+if __name__ == "__main__":
+    ids = [1, 2, 3, 4, 5]
+    with Pool(processes=4) as pool:
+        results = pool.map(query_sql_server, ids)
+    print(results)
+```
+
+---
+
+## Error Handling and Logging in Parallel Workflows
+
+### Exception Handling in Python
+```python
+import logging
+
+logging.basicConfig(filename='errors.log', level=logging.ERROR)
+
+def query_database(id):
+    try:
+        if id % 2 == 0:
+            raise ValueError("Simulated error")
+        return f"Processed ID: {id}"
+    except Exception as e:
+        logging.error(f"Error processing ID {id}: {e}")
+        return None
+```
+
+### Logging in R
+```r
+library(futile.logger)
+
+query_database <- function(id) {
+  tryCatch({
+    if (id %% 2 == 0) stop("Simulated error")
+    paste("Processed ID:", id)
+  }, error = function(e) {
+    flog.error(paste("Error processing ID", id, ":", e$message))
+    return(NULL)
+  })
+}
+```
+
+---
+
+## Summary & Best Practices
+
+- Choose the right parallelization method for the task.
+- Efficiently manage SQL connections.
+- Profile performance improvements.
+- Implement robust error handling and logging.
+
+---
+
+## Q&A / Discussion
+
+(Open for team discussion)
