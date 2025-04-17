@@ -1,99 +1,937 @@
 ---
-title: "Parallelization of Embarrassingly Parallel Tasks in R & Python"
-author: "Your Name"
-date: "`r Sys.Date()`"
-format: revealjs
+title: "May the Cores be With You"
+subtitle: "Parellelization in R and Python"
+author: "Aaron Cochran"
+date: today
+format: 
+  revealjs:
+    theme: dark
+    slide-number: true
+    incremental: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+    highligh-style: github
+css: styles.css
 ---
 
-## Introduction
+## Outline
+
+1.  What is?
+2.  How do?
+3.  It broke. How fix?
+
+------------------------------------------------------------------------
 
 ### What is Parallelization?
-- Dividing tasks across multiple CPU cores.
-- Benefits: Speed, efficiency, scalability.
 
-### What are Embarrassingly Parallel Tasks?
-- Tasks that can run independently without dependencies.
-- Examples:
-  - Running SQL queries for multiple IDs.
-  - Monte Carlo simulations.
-  - Batch image processing.
+1.  The basics: Dividing work across computer cores
+2.  Benefits: Speed, efficiency, scalability.
+3.  Best practices: Error logging, error handling
 
----
+------------------------------------------------------------------------
 
 ## The Framework for Parallel Execution
 
-1. Define the function to execute (e.g., querying SQL Server).
-2. Partition the workload (e.g., split list of IDs).
-3. Assign work to parallel workers.
-4. Aggregate results.
+1.  Define the function to execute (e.g., querying SQL Server).
+2.  Partition the workload (e.g., split list of IDs).
+3.  Assign work to parallel workers.
+4.  Aggregate results.
 
----
+------------------------------------------------------------------------
+
+## Basic concepts
+
+1.  Cores, threads, and vCPUs
+2.  Serialization
+3.  Embarassingly parallel
+
+------------------------------------------------------------------------
+
+## Multicore Architecture {.smaller}
+
+:::: {.columns}
+
+::: {.column width="40%"}
+1.  CPU cores are the *physical* processing unit in a processor. Modern CPUs have multiple cores, allowing each core to execute a seperate task indepedently.
+
+2.  Virtual CPUs (vCPUs) are a virtualized abstraction of a physical CPU core in a cloud or virtual environment.
+:::
+
+::: {.column width="60%"}
+![](img/multicore-diagram.png){fig-align="center"}
+:::
+
+::::
+
+------------------------------------------------------------------------
+
+So, how many workers do I create?
+
+- Desktop = 1 worker per CPU Core
+
+- Cloud = *it depends*
+  - default is 1 per vCPU but..
+  - each worker takes RAM
+  - AWS balances resources across all virtual machines (black box)
+  - use monitoring to determine efficient CPU utilization
+  
+
+------------------------------------------------------------------------
+
+## Threading
+
+3.  Threads are similar to cores, but they share resources, and do not result in multiplicative speed increases for additional workers.
+
+4.  **Note: Cloud providers allocate vCPUs based on the number of** *threads* **not the number of physical cores.**
+
+
+![](img/multithread-diagram.png){fig-align="center"}
+
+------------------------------------------------------------------------
+
+### What is serialization?
+
+Serialization is the process of converting complex data structures or object states into a format that can be:
+
+-   Stored (in a file, database, or memory buffer)
+
+-   Transmitted across a network connection
+
+-   Later reconstructed in the same or different environment
+
+------------------------------------------------------------------------
+
+### Serialization (continued)
+
+![](img/serialize-deserialize-java.png){fig-align="center"}
+
+------------------------------------------------------------------------
+
+### What are Embarrassingly Parallel Tasks?
+
+-   Tasks that can run independently without dependencies.
+-   Examples:
+    -   Running SQL queries for multiple IDs.
+    -   Monte Carlo simulations.
+    -   Batch image processing.
+
+------------------------------------------------------------------------
 
 ## Parallelization in Python
 
-### Using `multiprocessing`
-```python
-from multiprocessing import Pool
+### Common Packages
 
-def query_database(id):
-    return f"Processed ID: {id}"
+1.  `multiprocessing`
+2.  `joblib`
+3.  (for SQL) `pyodbc` and `sqlalchemy`
+
+------------------------------------------------------------------------
+
+### A Challenging Problem {.smaller}
+
+I have a *list of Case IDs.* I want to *query the Data Warehouse for attributes about the case*, which are then used to query the Data Warehouse for all case notes. After collecting all of these notes and processing the statements within, I want to score the statements with 1 or more predictive models, and write the results to a local `duckdb` database.
+
+1.  Get ID from list
+2.  Use ID to query SQL
+3.  Process Results
+4.  Score results
+5.  Write out results
+
+------------------------------------------------------------------------
+
+#### Break down the problem
+
+1.  **Task type:** Is the task embarrassingly parallel?
+2.  **Define the function:** draw a case ID from a list without replacement, query SQL multiple times, process and aggregate the text data, and score with predictive model(s).
+3.  **Choose the tools:** Python or R? Which package or method? *There are no right answers here. Everything has trade-offs.*
+
+------------------------------------------------------------------------
+
+### Python Example
+
+The skeleton script to do a similar process is:
+
+```{.python code-line-numbers="8-16"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
 
 if __name__ == "__main__":
-    ids = [1, 2, 3, 4, 5]
-    with Pool(processes=4) as pool:
-        results = pool.map(query_database, ids)
-    print(results)
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
 ```
 
-### Using `joblib`
-```python
-from joblib import Parallel, delayed
+------------------------------------------------------------------------
 
-def query_database(id):
-    return f"Processed ID: {id}"
+```{.python code-line-numbers="21-26"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
 
-ids = [1, 2, 3, 4, 5]
-results = Parallel(n_jobs=-1)(delayed(query_database)(id) for id in ids)
-print(results)
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
 ```
 
----
+------------------------------------------------------------------------
+
+```{.python code-line-numbers="28-44"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
+```
+
+------------------------------------------------------------------------
+
+```{.python code-line-numbers="46-52"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
+```
+
+------------------------------------------------------------------------
+
+```{.python code-line-numbers="54-70"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
+```
+
+------------------------------------------------------------------------
+
+```{.python code-line-numbers="71-76"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
+```
+
+------------------------------------------------------------------------
+
+```{.python code-line-numbers="78-92"}
+import multiprocessing
+import queue
+import random
+import pyodbc
+import pandas as pd
+from multiprocessing import Lock
+v
+# --- GLOBAL SETTINGS ---
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)  # Use all but one core
+OUTPUT_FILE = "results.csv"
+ID_POOL = list(range(1, 501))  # Example ID pool (ensuring unique draws)
+
+# Create a thread-safe queue to store IDs
+id_queue = multiprocessing.Queue()
+for id_ in ID_POOL:
+    id_queue.put(id_)
+
+# Lock for file writing
+file_lock = Lock()
+
+# --- 1. Function to Safely Draw an ID ---
+def get_next_id():
+    try:
+        return id_queue.get_nowait()  # Retrieve ID from queue (non-blocking)
+    except queue.Empty:
+        return None
+
+# --- 2. Function to Query SQL Server ---
+def query_data(id_):
+    conn = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=your_server;"
+        "DATABASE=your_database;"
+        "UID=your_username;"
+        "PWD=your_password"
+    )
+    
+    cursor = conn.cursor()
+    query = f"SELECT text_column FROM your_table WHERE id = {id_}"
+    cursor.execute(query)
+    row = cursor.fetchone()
+    
+    conn.close()
+    return row[0] if row else None
+
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+def load_models():
+    # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+    tokenizer = lambda text: text.split()  # Simple tokenizer
+    model = lambda tokens: random.uniform(0, 1)  # Dummy scoring model
+    
+    return tokenizer, model
+
+# --- 4. Process Text Data and Score it with the Model ---
+def process_text():
+    while not id_queue.empty():
+        id_ = get_next_id()
+        if id_ is None:
+            return
+        
+        text_data = query_data(id_)
+        if text_data is None:
+            return
+        
+        tokenizer, model = load_models()
+        tokenized_text = tokenizer(text_data)  # Tokenize text
+        score = model(tokenized_text)  # Score text
+        
+        result = {"ID": id_, "Score": score}
+        
+        # --- 5. Write results to a file safely ---
+        with file_lock:
+            df = pd.DataFrame([result])
+            df.to_csv(OUTPUT_FILE, mode='a', header=False, index=False)
+        
+        print(f"Processed ID {id_}: Score = {score}")
+
+# --- RUN PARALLEL PROCESSING ---
+def run_parallel():
+    processes = []
+    
+    for _ in range(NUM_CORES):
+        p = multiprocessing.Process(target=process_text)
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+
+if __name__ == "__main__":
+    run_parallel()
+    print("Processing complete. Results saved to", OUTPUT_FILE)
+```
+
+
+
+------------------------------------------------------------------------
 
 ## Parallelization in R
 
-### Using `future` and `furrr`
-```r
-library(furrr)
-plan(multisession)
+For a similar process, it might look like this:
 
-query_database <- function(id) {
-  paste("Processed ID:", id)
+``` r
+# Load required libraries
+library(parallel)      # For parallel processing
+library(DBI)           # For SQL Server connection
+library(odbc)          # ODBC driver for SQL Server
+library(data.table)    # For efficient data handling
+library(stringr)       # For text processing (example)
+library(future)        # Alternative parallel framework (optional)
+
+# --- GLOBAL SETTINGS ---
+num_cores <- detectCores() - 1  # Use all but one core
+output_file <- "results.csv"    # File to store results
+
+# --- 1. Get Unique IDs from a Pool (Ensuring Each is Used Once) ---
+id_pool <- sample(1:1000, 500)  # Example pool of IDs
+id_queue <- as.list(id_pool)    # Convert to list for parallel processing
+
+# Function to safely draw an ID (thread-safe)
+get_next_id <- function() {
+  id <- NULL
+  if (length(id_queue) > 0) {
+    id <- id_queue[[1]]
+    id_queue <<- id_queue[-1]  # Remove the used ID
+  }
+  return(id)
 }
 
-ids <- 1:5
-results <- future_map(ids, query_database)
-print(results)
-```
-
-### Using `parallel`
-```r
-library(parallel)
-
-query_database <- function(id) {
-  paste("Processed ID:", id)
+# --- 2. Function to Query SQL Server ---
+query_data <- function(id) {
+  con <- dbConnect(odbc::odbc(), 
+                   Driver = "ODBC Driver 17 for SQL Server", 
+                   Server = "your_server", 
+                   Database = "your_database", 
+                   UID = "your_username", 
+                   PWD = "your_password")
+  
+  query <- sprintf("SELECT text_column FROM your_table WHERE id = %d", id)
+  data <- dbGetQuery(con, query)
+  dbDisconnect(con)
+  
+  return(data$text_column)
 }
 
-ids <- 1:5
-results <- mclapply(ids, query_database, mc.cores = 4)
-print(results)
+# --- 3. Load Tokenizers, Dictionaries, and Fine-Tuned Models (Minimal Example) ---
+load_models <- function() {
+  # Placeholder for loading tokenizers, embeddings, or fine-tuned models
+  tokenizer <- function(text) str_split(text, " ")[[1]]  # Example tokenizer
+  model <- list(score = function(text) runif(1, 0, 1))   # Placeholder model
+  
+  return(list(tokenizer = tokenizer, model = model))
+}
+
+# --- 4. Process Text Data and Score it with a Model ---
+process_text <- function(id) {
+  if (is.null(id)) return(NULL)  # Handle empty ID case
+
+  text_data <- query_data(id)  # Fetch data from SQL Server
+  if (is.null(text_data)) return(NULL)  # Handle missing data
+
+  models <- load_models()  # Load NLP components
+  tokenized_text <- models$tokenizer(text_data)  # Tokenize text
+  score <- models$model$score(tokenized_text)    # Score using model
+
+  # Return results
+  return(data.frame(ID = id, Score = score))
+}
+
+# --- 5. Parallel Execution and Writing Results ---
+run_parallel <- function(num_cores) {
+  cl <- makeCluster(num_cores)  # Start parallel cluster
+  
+  # Export necessary objects and functions to workers
+  clusterExport(cl, c("query_data", "process_text", "load_models", "get_next_id"))
+  
+  results <- parLapply(cl, id_pool, process_text)  # Process in parallel
+  stopCluster(cl)  # Stop cluster when done
+  
+  # Save results to a file
+  results_df <- rbindlist(results)  # Combine into a data.table
+  fwrite(results_df, output_file, append = TRUE, col.names = FALSE)  # Append results
+  
+  return(results_df)
+}
+
+# --- RUN THE SCRIPT ---
+final_results <- run_parallel(num_cores)
+print(final_results)
 ```
 
----
+------------------------------------------------------------------------
 
 ## SQL Query Execution in Parallel
 
 ### Python Implementation
-```python
+
+``` {.python code-line-numbers="14-15"}
 import pyodbc
 from multiprocessing import Pool
 
@@ -112,12 +950,13 @@ if __name__ == "__main__":
     print(results)
 ```
 
----
+------------------------------------------------------------------------
 
 ## Error Handling and Logging in Parallel Workflows
 
 ### Exception Handling in Python
-```python
+
+``` {.python}
 import logging
 
 logging.basicConfig(filename='errors.log', level=logging.ERROR)
@@ -132,31 +971,207 @@ def query_database(id):
         return None
 ```
 
+------------------------------------------------------------------------
+
 ### Logging in R
-```r
-library(futile.logger)
+
+`tryCatch()` and `withCallingHandlers` and the `logging` package to
+debug complex applications. 
+
+- `withCallingHandlers` intercepts the error *without stopping its propogation*
+
+- The error bubbles up, eventually reaching a `tryCatch()` wrapper
+
+- `tryCatch()` provides a graceful failure mechanism, returning `NULL`
+
+------------------------------------------------------------------------
+
+``` {.r code-line-numbers="3-5"}
+library(logging)
+
+# Configure basic logging
+# putting it into an initial state
+basicConfig()
 
 query_database <- function(id) {
-  tryCatch({
-    if (id %% 2 == 0) stop("Simulated error")
-    paste("Processed ID:", id)
-  }, error = function(e) {
-    flog.error(paste("Error processing ID", id, ":", e$message))
-    return(NULL)
-  })
+  # Use withCallingHandlers to capture the full stack trace
+  withCallingHandlers(
+    expr = {
+      if (id %% 2 == 0) stop("Simulated error")
+      paste("Processed ID:", id)
+    },
+    error = function(e) {
+      # Get the stack trace
+      stack <- sys.calls()
+      trace_text <- paste(capture.output(print(stack)), collapse = "\n")
+      
+      # Log both the error message and stack trace
+      logerror(sprintf("Error processing ID %s: %s\nStack trace:\n%s", 
+                      id, e$message, trace_text))
+      
+      # Don't actually handle the error here, let it propagate
+      NULL
+    }
+  )
+}
+
+# Wrap with tryCatch to handle the error at the outermost level
+safe_query_database <- function(id) {
+  tryCatch(
+    query_database(id),
+    error = function(e) {
+      # Error already logged by withCallingHandlers
+      return(NULL)
+    }
+  )
 }
 ```
 
----
+------------------------------------------------------------------------
+
+`withCallingHandlers` gives more detail on the error by using a condition system
+(stored as S3-style objects in R).
+
+``` {.r code-line-numbers="9-13"}
+library(logging)
+
+# Configure basic logging
+# putting it into an initial state
+basicConfig()
+
+query_database <- function(id) {
+  # Use withCallingHandlers to capture the full stack trace
+  withCallingHandlers(
+    expr = {
+      if (id %% 2 == 0) stop("Simulated error")
+      paste("Processed ID:", id)
+    },
+    error = function(e) {
+      # Get the stack trace
+      stack <- sys.calls()
+      trace_text <- paste(capture.output(print(stack)), collapse = "\n")
+      
+      # Log both the error message and stack trace
+      logerror(sprintf("Error processing ID %s: %s\nStack trace:\n%s", 
+                      id, e$message, trace_text))
+      
+      # Don't actually handle the error here, let it propagate
+      NULL
+    }
+  )
+}
+
+# Wrap with tryCatch to handle the error at the outermost level
+safe_query_database <- function(id) {
+  tryCatch(
+    query_database(id),
+    error = function(e) {
+      # Error already logged by withCallingHandlers
+      return(NULL)
+    }
+  )
+}
+```
+
+------------------------------------------------------------------------
+
+Create the error message, log it, but don't handle it yet.
+
+``` {.r code-line-numbers="14-22"}
+library(logging)
+
+# Configure basic logging
+# putting it into an initial state
+basicConfig()
+
+query_database <- function(id) {
+  # Use withCallingHandlers to capture the full stack trace
+  withCallingHandlers(
+    expr = {
+      if (id %% 2 == 0) stop("Simulated error")
+      paste("Processed ID:", id)
+    },
+    error = function(e) {
+      # Get the stack trace
+      stack <- sys.calls()
+      trace_text <- paste(capture.output(print(stack)), collapse = "\n")
+      
+      # Log both the error message and stack trace
+      logerror(sprintf("Error processing ID %s: %s\nStack trace:\n%s", 
+                      id, e$message, trace_text))
+      
+      # Don't actually handle the error here, let it propagate
+      NULL
+    }
+  )
+}
+
+# Wrap with tryCatch to handle the error at the outermost level
+safe_query_database <- function(id) {
+  tryCatch(
+    query_database(id),
+    error = function(e) {
+      # Error already logged by withCallingHandlers
+      return(NULL)
+    }
+  )
+}
+```
+
+------------------------------------------------------------------------
+
+
+``` {.r code-line-numbers="3-5"}
+library(logging)
+
+# Configure basic logging
+# putting it into an initial state
+basicConfig()
+
+query_database <- function(id) {
+  # Use withCallingHandlers to capture the full stack trace
+  withCallingHandlers(
+    expr = {
+      if (id %% 2 == 0) stop("Simulated error")
+      paste("Processed ID:", id)
+    },
+    error = function(e) {
+      # Get the stack trace
+      stack <- sys.calls()
+      trace_text <- paste(capture.output(print(stack)), collapse = "\n")
+      
+      # Log both the error message and stack trace
+      logerror(sprintf("Error processing ID %s: %s\nStack trace:\n%s", 
+                      id, e$message, trace_text))
+      
+      # Don't actually handle the error here, let it propagate
+      NULL
+    }
+  )
+}
+
+# Wrap with tryCatch to handle the error at the outermost level
+safe_query_database <- function(id) {
+  tryCatch(
+    query_database(id),
+    error = function(e) {
+      # Error already logged by withCallingHandlers
+      return(NULL)
+    }
+  )
+}
+```
+
+------------------------------------------------------------------------
 
 ## Summary & Best Practices
 
-- Choose the right parallelization method for the task.
-- Efficiently manage SQL connections.
-- Profile performance improvements.
-- Implement robust error handling and logging.
+-   Choose the right parallelization method for the task.
+-   Efficiently manage SQL connections.
+-   Profile performance improvements.
+-   Implement robust error handling and logging.
 
----
+------------------------------------------------------------------------
 
 ## Q&A / Discussion
 
