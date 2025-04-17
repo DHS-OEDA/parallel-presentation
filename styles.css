@@ -6,3 +6,27 @@
     color: gold;
     text-shadow: 2px 2px 10px black;
 }
+
+/* Class for greyed out text */
+.greyed-out {
+    color: #888888;
+    opacity: 0.6;
+}
+
+/* Class for active/highlighted text */
+.active-section {
+    color: #31BAE9;
+    font-weight: bold;
+}
+
+/* Class for completed sections */
+.completed-section {
+    color: #4CAF50; /* Green color for completed sections */
+    text-decoration: line-through;
+}
+
+/* Teal highlight text */
+.teal-text {
+    color: #31BAE9;
+}
+

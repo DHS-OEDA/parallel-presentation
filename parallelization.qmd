@@ -14,11 +14,21 @@ format:
 css: styles.css
 ---
 
-## Outline
+## Roadmap
 
 1.  What is?
 2.  How do?
 3.  It broke. How fix?
+
+------------------------------------------------------------------------
+
+## Roadmap
+
+::: {.nonincremental}
+1.  [What is?]{.active-section}
+2.  [How do?]{.greyed-out}
+3.  [It broke. How fix?]{.greyed-out}
+:::
 
 ------------------------------------------------------------------------
 
@@ -41,16 +51,15 @@ css: styles.css
 
 ## Basic concepts
 
-1.  Cores, threads, and vCPUs
+1.  Cores, threads, and vCPUs (oh my)
 2.  Serialization
-3.  Embarassingly parallel
+3.  Embarrassingly parallel
 
 ------------------------------------------------------------------------
 
 ## Multicore Architecture {.smaller}
 
-:::: {.columns}
-
+::: columns
 ::: {.column width="40%"}
 1.  CPU cores are the *physical* processing unit in a processor. Modern CPUs have multiple cores, allowing each core to execute a seperate task indepedently.
 
@@ -60,21 +69,20 @@ css: styles.css
 ::: {.column width="60%"}
 ![](img/multicore-diagram.png){fig-align="center"}
 :::
-
-::::
+:::
 
 ------------------------------------------------------------------------
 
 So, how many workers do I create?
 
-- Desktop = 1 worker per CPU Core
+-   Desktop = 1 worker per CPU Core
 
-- Cloud = *it depends*
-  - default is 1 per vCPU but..
-  - each worker takes RAM
-  - AWS balances resources across all virtual machines (black box)
-  - use monitoring to determine efficient CPU utilization
-  
+-   Cloud = *it depends*
+
+    -   default is 1 per vCPU but..
+    -   each worker takes RAM
+    -   AWS balances resources across all virtual machines (black box)
+    -   use monitoring to determine efficient CPU utilization
 
 ------------------------------------------------------------------------
 
@@ -83,7 +91,6 @@ So, how many workers do I create?
 3.  Threads are similar to cores, but they share resources, and do not result in multiplicative speed increases for additional workers.
 
 4.  **Note: Cloud providers allocate vCPUs based on the number of** *threads* **not the number of physical cores.**
-
 
 ![](img/multithread-diagram.png){fig-align="center"}
 
@@ -117,6 +124,16 @@ Serialization is the process of converting complex data structures or object sta
 
 ------------------------------------------------------------------------
 
+## Roadmap
+
+::: {.nonincremental}
+1.  [What is?]{.completed-section}
+2.  [How do?]{.active-section}
+3.  [It broke. How fix?]{.greyed-out}
+:::
+
+------------------------------------------------------------------------
+
 ## Parallelization in Python
 
 ### Common Packages
@@ -129,13 +146,19 @@ Serialization is the process of converting complex data structures or object sta
 
 ### A Challenging Problem {.smaller}
 
-I have a *list of Case IDs.* I want to *query the Data Warehouse for attributes about the case*, which are then used to query the Data Warehouse for all case notes. After collecting all of these notes and processing the statements within, I want to score the statements with 1 or more predictive models, and write the results to a local `duckdb` database.
+::: columns
+::: {.column width="60%"}
+I have a [list of Case IDs.]{.teal-text} I want to [query the Data Warehouse]{.teal-text} for attributes about the case, which are then used to query the Data Warehouse for all case notes. After collecting all of these notes and [processing the statements within]{.teal-text}, I want to [score the statements]{.teal-text} with 1 or more predictive models, and [write the results]{.teal-text} locally.
+:::
 
+::: {.column width="40%"}
 1.  Get ID from list
 2.  Use ID to query SQL
 3.  Process Results
 4.  Score results
 5.  Write out results
+:::
+:::
 
 ------------------------------------------------------------------------
 
@@ -151,7 +174,7 @@ I have a *list of Case IDs.* I want to *query the Data Warehouse for attributes 
 
 The skeleton script to do a similar process is:
 
-```{.python code-line-numbers="8-16"}
+``` {.python code-line-numbers="8-16"}
 import multiprocessing
 import queue
 import random
@@ -248,7 +271,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="21-26"}
+``` {.python code-line-numbers="21-26"}
 import multiprocessing
 import queue
 import random
@@ -345,7 +368,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="28-44"}
+``` {.python code-line-numbers="28-44"}
 import multiprocessing
 import queue
 import random
@@ -442,7 +465,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="46-52"}
+``` {.python code-line-numbers="46-52"}
 import multiprocessing
 import queue
 import random
@@ -539,7 +562,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="54-70"}
+``` {.python code-line-numbers="54-70"}
 import multiprocessing
 import queue
 import random
@@ -636,7 +659,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="71-76"}
+``` {.python code-line-numbers="71-76"}
 import multiprocessing
 import queue
 import random
@@ -733,7 +756,7 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-```{.python code-line-numbers="78-92"}
+``` {.python code-line-numbers="78-92"}
 import multiprocessing
 import queue
 import random
@@ -827,8 +850,6 @@ if __name__ == "__main__":
     run_parallel()
     print("Processing complete. Results saved to", OUTPUT_FILE)
 ```
-
-
 
 ------------------------------------------------------------------------
 
@@ -952,37 +973,50 @@ if __name__ == "__main__":
 
 ------------------------------------------------------------------------
 
-## Error Handling and Logging in Parallel Workflows
+## Roadmap
+
+::: {.nonincremental}
+1.  [What is?]{.completed-section}
+2.  [How do?]{.completed-section}
+3.  [It broke. How fix?]{.active-section}
+:::
+
+------------------------------------------------------------------------
+
 
 ### Exception Handling in Python
 
-``` {.python}
+
+``` python
 import logging
 
-logging.basicConfig(filename='errors.log', level=logging.ERROR)
+logging.basicConfig(filename='errors.log', level=logging.ERROR) # <1>
 
-def query_database(id):
-    try:
+def query_database(id): # <2>
+    try: # <2>
         if id % 2 == 0:
-            raise ValueError("Simulated error")
-        return f"Processed ID: {id}"
-    except Exception as e:
-        logging.error(f"Error processing ID {id}: {e}")
-        return None
+            raise ValueError("Simulated error") # <2>
+        return f"Processed ID: {id}" # <2>
+    except Exception as e: # <2>
+        logging.error(f"Error processing ID {id}: {e}") # <2>
+        return None # <2>
 ```
+
+1. Create logfile, set level to only log `ERROR`s, then
+2. use a function to throw and log an error
+
 
 ------------------------------------------------------------------------
 
 ### Logging in R
 
-`tryCatch()` and `withCallingHandlers` and the `logging` package to
-debug complex applications. 
+`tryCatch()` and `withCallingHandlers` and the `logging` package to debug complex applications.
 
-- `withCallingHandlers` intercepts the error *without stopping its propogation*
+-   `withCallingHandlers` intercepts the error *without stopping its propogation*
 
-- The error bubbles up, eventually reaching a `tryCatch()` wrapper
+-   The error bubbles up, eventually reaching a `tryCatch()` wrapper
 
-- `tryCatch()` provides a graceful failure mechanism, returning `NULL`
+-   `tryCatch()` provides a graceful failure mechanism, returning `NULL`
 
 ------------------------------------------------------------------------
 
@@ -1029,8 +1063,7 @@ safe_query_database <- function(id) {
 
 ------------------------------------------------------------------------
 
-`withCallingHandlers` gives more detail on the error by using a condition system
-(stored as S3-style objects in R).
+`withCallingHandlers` gives more detail on the error by using a condition system (stored as S3-style objects in R).
 
 ``` {.r code-line-numbers="9-13"}
 library(logging)
@@ -1119,7 +1152,6 @@ safe_query_database <- function(id) {
 ```
 
 ------------------------------------------------------------------------
-
 
 ``` {.r code-line-numbers="3-5"}
 library(logging)
