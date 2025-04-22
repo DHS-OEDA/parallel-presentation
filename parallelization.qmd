@@ -857,7 +857,7 @@ if __name__ == "__main__":
 
 For a similar process, it might look like this:
 
-``` r
+``` {.r}
 # Load required libraries
 library(parallel)      # For parallel processing
 library(DBI)           # For SQL Server connection
