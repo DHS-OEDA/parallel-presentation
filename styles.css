@@ -30,3 +30,12 @@
     color: #31BAE9;
 }
 
+/* Persistent Github Link */
+.github-corner {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  margin: 10px;
+  font-size: 24px;
+  z-index: 100;
+}
