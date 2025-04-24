@@ -130,8 +130,6 @@ The GIL is a mutex (or lock) that protects access to Python objects, preventing 
 
 4.  **Note: Cloud providers allocate vCPUs based on the number of** *threads* **not the number of physical cores.**
 
-![](img/multithread-diagram.png){fig-align="center"}
-
 ------------------------------------------------------------------------
 
 ### What is serialization?
