@@ -152,7 +152,7 @@ Serialization is the process of converting complex data structures or object sta
 
 ### What are Embarrassingly Parallel Tasks?
 
--   Tasks that can run independently without dependencies.
+-   Tasks that can run independently of each other
 -   Examples:
     -   Running SQL queries for multiple IDs.
     -   Monte Carlo simulations.
