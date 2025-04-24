@@ -83,7 +83,9 @@ So let's talk about multicore architecture.
 
 ### Praxis
 
-So, how many workers do I create?
+1. When do I use it?
+
+2. How many workers do I create?
 
 -   Desktop = 1 worker per CPU Core
 
@@ -93,6 +95,32 @@ So, how many workers do I create?
     -   each worker takes RAM
     -   AWS balances resources across all virtual machines (black box)
     -   use monitoring to determine efficient CPU utilization
+    
+::: notes
+When not to use: 
+
+1. Tasks with significant sequential dependencies - When each step requires the results of previous steps and cannot be performed independently.
+
+2. Tasks where overhead exceeds benefits - For small computations where the cost of setting up parallel processes exceeds the time saved by parallelization.
+
+3. I/O-bound operations - When the bottleneck is input/output operations rather than CPU processing (like waiting for database responses or disk operations).
+
+4. Tasks with heavy resource sharing - When parallel workers need frequent access to shared resources, causing contention and synchronization issues.
+
+5. Tasks requiring complex serialization - When data structures need extensive serialization/deserialization to be passed between processes, adding significant overhead.
+
+6. Memory-intensive operations - When each worker requires large amounts of memory, potentially exhausting system resources when run in parallel.
+
+7. Tasks with uneven workload distribution - When some workers finish quickly while others take much longer, resulting in inefficient resource utilization.
+
+8. When using threading for CPU-intensive tasks in Python - Due to the Global Interpreter Lock (GIL), threaded Python code often can't utilize multiple cores for CPU-bound tasks.
+
+**Note that #8 is fixed by using the multiprocessing module**
+
+Notes on GIL:
+
+The GIL is a mutex (or lock) that protects access to Python objects, preventing multiple threads from executing Python bytecode at the same time. In other words, the GIL allows only one thread to execute Python code at once, even when running on a multi-core processor.
+:::
 
 ------------------------------------------------------------------------
 
@@ -151,6 +179,8 @@ We'll cover
 - then R
 
 This uses minimal examples to keep things simplified.
+
+- Who here has done multiprocessing before?
 :::
 
 ------------------------------------------------------------------------
@@ -302,8 +332,6 @@ if __name__ == "__main__":
 
 ## Parallelization in R
 
-For a similar process, it might look like this:
-
 ``` {.r code-line-numbers="8-10|12-14|15-24|26-40|42-49|51-64|66-81|83-85"}
 # Load required libraries
 library(parallel)      # For parallel processing
@@ -392,6 +420,13 @@ final_results <- run_parallel(num_cores)
 print(final_results)
 ```
 
+::: notes
+For a similar process in R, look at this. 
+
+- Note that serialization happens as an explicit step here using `clusterExport()`
+
+:::
+
 ------------------------------------------------------------------------
 
 ## Roadmap
@@ -426,7 +461,7 @@ def query_database(id): # <2>
 
 ------------------------------------------------------------------------
 
-### Logging in R
+### Logging in R {.smaller}
 
 `tryCatch()` and `withCallingHandlers` and the `logging` package to debug complex applications.
 
@@ -490,12 +525,24 @@ safe_query_database <- function(id) {
 
 ------------------------------------------------------------------------
 
-## Links
+## Links {.smaller}
 
 [{{< fa brands github >}} Presentation Source Code](https://github.com/DHS-OEDA/parallel-presentation)
 
 [{{< fa brands js >}} Revealjs Presentation Documentation](https://quarto.org/docs/presentations/revealjs/)
 
+#### R Resources
+
+[Advanced R](https://adv-r.hadley.nz/index.html) by Hadley Wickham
+
+[Advanced R Solutions](https://advanced-r-solutions.rbind.io/) by Malte Grosser, Henning Bumann, and Hadley Wickham
+
+#### Python Resources
+
+[{{< fa brands python>}} Multiprocessing Tutorial](https://www.blog.pythonlibrary.org/2016/08/02/python-201-a-multiprocessing-tutorial/)
+
+[{{< fa brands python>}} Python Multiprocessing](https://superfastpython.com/multiprocessing-in-python/): The Complete Guide
+
 ## Q&A / Discussion
 
-(Open for team discussion)
+
